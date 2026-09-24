@@ -3199,57 +3199,69 @@ document.addEventListener('DOMContentLoaded', async () => {
   const _supa = supabase.createClient(SUPA_URL, SUPA_KEY);
   let _dbSaveTimer = null;
 
-  // تحميل البيانات من Supabase عند فتح الصفحة
+  // دالة مشتركة لتطبيق البيانات المحملة على DB
+  function applyRemoteData(remote) {
+    let hasData = false;
+    if (remote.clients && remote.clients.length > 0)      { DB.clients = remote.clients; hasData = true; }
+    if (remote.vehicules && remote.vehicules.length > 0)  { DB.vehicules = remote.vehicules; hasData = true; }
+    if (remote.contrats && remote.contrats.length > 0)    { DB.contrats = remote.contrats; hasData = true; }
+    if (remote.factures && remote.factures.length > 0)    { DB.factures = remote.factures; hasData = true; }
+    if (remote.reservations && remote.reservations.length > 0) { DB.reservations = remote.reservations; hasData = true; }
+    if (remote.infractions && remote.infractions.length > 0)   { DB.infractions = remote.infractions; hasData = true; }
+    if (remote.nextClientId)     DB.nextClientId     = remote.nextClientId;
+    if (remote.nextResId)        DB.nextResId        = remote.nextResId;
+    if (remote.nextVehId)        DB.nextVehId        = remote.nextVehId;
+    if (remote.nextContratId)    DB.nextContratId    = remote.nextContratId;
+    if (remote.nextFactureId)    DB.nextFactureId    = remote.nextFactureId;
+    if (remote.nextInfractionId) DB.nextInfractionId = remote.nextInfractionId;
+    return hasData;
+  }
+
+  // تحميل البيانات عند فتح الصفحة (Supabase أولاً، ثم localStorage كاحتياطي)
   async function dbLoad() {
+    let loadedFromCloud = false;
     try {
       const { data, error } = await _supa.from('feocar_data').select('value').eq('key','main').single();
       if (error) throw error;
       if (data && data.value) {
-        const remote = data.value;
-        let hasRemoteData = false;
-
-        // استخدم البيانات السحابية فقط إذا فيها شيء
-        if (remote.clients && remote.clients.length > 0)      { DB.clients = remote.clients; hasRemoteData = true; }
-        if (remote.vehicules && remote.vehicules.length > 0)  { DB.vehicules = remote.vehicules; hasRemoteData = true; }
-        if (remote.contrats && remote.contrats.length > 0)    { DB.contrats = remote.contrats; hasRemoteData = true; }
-        if (remote.factures && remote.factures.length > 0)    { DB.factures = remote.factures; hasRemoteData = true; }
-        if (remote.reservations && remote.reservations.length > 0) { DB.reservations = remote.reservations; hasRemoteData = true; }
-        if (remote.infractions && remote.infractions.length > 0)   { DB.infractions = remote.infractions; hasRemoteData = true; }
-        if (remote.nextClientId)    DB.nextClientId    = remote.nextClientId;
-        if (remote.nextResId)       DB.nextResId       = remote.nextResId;
-        if (remote.nextVehId)       DB.nextVehId       = remote.nextVehId;
-        if (remote.nextContratId)   DB.nextContratId   = remote.nextContratId;
-        if (remote.nextFactureId)   DB.nextFactureId   = remote.nextFactureId;
-        if (remote.nextInfractionId) DB.nextInfractionId = remote.nextInfractionId;
-
-        // إذا السحابة فارغة → احفظ البيانات الأصلية فيها
-        if (!hasRemoteData) {
-          setTimeout(() => window.dbSave && dbSave(), 1000);
-        }
+        const hasData = applyRemoteData(data.value);
+        loadedFromCloud = true;
+        // إذا السحابة فارغة → احفظ البيانات المحلية فيها
+        if (!hasData) setTimeout(() => window.dbSave && dbSave(), 1000);
       }
     } catch(e) {
       console.warn('Supabase load error:', e.message);
-      toast('⚠️ تعذّر تحميل البيانات: ' + e.message, 'error');
+      // fallback: قراءة من localStorage
+      try {
+        const local = localStorage.getItem('feocar_data');
+        if (local) {
+          applyRemoteData(JSON.parse(local));
+          console.log('✅ Loaded from localStorage');
+        }
+      } catch(le) { console.warn('localStorage load error:', le.message); }
     }
-    // اعرض البيانات دائماً (سواء من السحابة أو المحلية)
+    // اعرض البيانات دائماً
     renderClients(); renderReservations(); renderContrats();
     renderFactures(); renderInfractions(); renderVehicules();
     refreshVehiculeOptions(); renderInspectionAlerts();
   }
 
-  // حفظ البيانات في Supabase (مع تأخير 2 ثانية لتجميع التغييرات)
+  // حفظ البيانات (localStorage فوري + Supabase احتياطي)
   window.dbSave = function() {
+    const payload = {
+      clients: DB.clients, vehicules: DB.vehicules, contrats: DB.contrats,
+      factures: DB.factures, reservations: DB.reservations, infractions: DB.infractions,
+      nextClientId: DB.nextClientId, nextResId: DB.nextResId, nextVehId: DB.nextVehId,
+      nextContratId: DB.nextContratId, nextFactureId: DB.nextFactureId,
+      nextInfractionId: DB.nextInfractionId
+    };
+    // 1) حفظ فوري في localStorage (يعمل دائماً بدون إنترنت)
+    try { localStorage.setItem('feocar_data', JSON.stringify(payload)); } catch(e) {}
+
+    // 2) حفظ في Supabase مع تأخير 2 ثانية (للمزامنة بين الأجهزة)
     clearTimeout(_dbSaveTimer);
     _dbSaveTimer = setTimeout(async () => {
       try {
-        const payload = {
-          clients: DB.clients, vehicules: DB.vehicules, contrats: DB.contrats,
-          factures: DB.factures, reservations: DB.reservations, infractions: DB.infractions,
-          nextClientId: DB.nextClientId, nextResId: DB.nextResId, nextVehId: DB.nextVehId,
-          nextContratId: DB.nextContratId, nextFactureId: DB.nextFactureId,
-          nextInfractionId: DB.nextInfractionId
-        };
-        // محاولة UPDATE أولاً، ثم INSERT إذا لم يجد السجل
         const { data: existing, error: selErr } = await _supa.from('feocar_data').select('key').eq('key','main');
         if (selErr) throw selErr;
         let saveError;
@@ -3263,8 +3275,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         if (saveError) throw saveError;
         console.log('✅ Supabase save OK');
       } catch(e) {
-        console.warn('Supabase save error:', e.message);
-        toast('❌ خطأ في الحفظ: ' + e.message, 'error');
+        console.warn('Supabase save error (using localStorage):', e.message);
       }
     }, 2000);
   };
