@@ -1695,6 +1695,7 @@ function saveClient() {
     if (c) { c.prenom=prenom; c.nom=nom; c.cin=cin; c.cinExp=cinExp; c.tel=tel; c.email=email; c.ville=ville||'—'; c.pays=pays; c.permis=permis; c.permisExp=permisExp; }
     delete document.getElementById('modal-add-client').dataset.editId;
     document.getElementById('modal-title-client').textContent = '👤 Nouveau Client';
+    if(window.dbSave) dbSave();
     toast('✅ Client modifié avec succès !');
   } else {
     // Add mode
@@ -1925,16 +1926,29 @@ function deleteVehicule(id) {
 function previewVehPhoto(input) {
   const file = input.files[0];
   if (!file) return;
-  if (file.size > 5*1024*1024) { toast('⚠️ Image trop grande (max 5MB)', 'error'); return; }
+  if (file.size > 10*1024*1024) { toast('⚠️ Image trop grande (max 10MB)', 'error'); return; }
   const reader = new FileReader();
   reader.onload = e => {
-    const prev = document.getElementById('veh-photo-preview');
-    const ph   = document.getElementById('veh-photo-placeholder');
-    const btn  = document.getElementById('veh-photo-clear');
-    prev.src = e.target.result;
-    prev.style.display = 'block';
-    ph.style.display   = 'none';
-    btn.style.display  = 'inline-block';
+    // ضغط الصورة تلقائياً إلى 400px وجودة 70%
+    const img = new Image();
+    img.onload = () => {
+      const canvas = document.createElement('canvas');
+      const MAX = 400;
+      let w = img.width, h = img.height;
+      if (w > h) { if (w > MAX) { h = Math.round(h * MAX/w); w = MAX; } }
+      else        { if (h > MAX) { w = Math.round(w * MAX/h); h = MAX; } }
+      canvas.width = w; canvas.height = h;
+      canvas.getContext('2d').drawImage(img, 0, 0, w, h);
+      const compressed = canvas.toDataURL('image/jpeg', 0.70);
+      const prev = document.getElementById('veh-photo-preview');
+      const ph   = document.getElementById('veh-photo-placeholder');
+      const btn  = document.getElementById('veh-photo-clear');
+      prev.src = compressed;
+      prev.style.display = 'block';
+      ph.style.display   = 'none';
+      btn.style.display  = 'inline-block';
+    };
+    img.src = e.target.result;
   };
   reader.readAsDataURL(file);
 }
@@ -1979,6 +1993,7 @@ function saveVehicle() {
              v.carburant=carb; v.trans=trans; v.prix=prix; v.statut=statut;
              v.dateAchat=dateAchat; if(photo) v.photo=photo; }
     delete document.getElementById('modal-add-vehicle').dataset.editId;
+    if(window.dbSave) dbSave();
     toast('✅ Véhicule modifié avec succès !');
   } else {
     DB.vehicules.push({ id: DB.nextVehId++, plaque, marque, modele, annee: parseInt(annee),
@@ -3213,6 +3228,7 @@ document.addEventListener('DOMContentLoaded', async () => {
       }
     } catch(e) {
       console.warn('Supabase load error:', e.message);
+      toast('⚠️ تعذّر تحميل البيانات: ' + e.message, 'error');
     }
     // اعرض البيانات دائماً (سواء من السحابة أو المحلية)
     renderClients(); renderReservations(); renderContrats();
@@ -3233,10 +3249,12 @@ document.addEventListener('DOMContentLoaded', async () => {
           nextInfractionId: DB.nextInfractionId
         };
         const { error } = await _supa.from('feocar_data')
-          .upsert({ key: 'main', value: payload, updated_at: new Date().toISOString() });
+          .upsert({ key: 'main', value: payload });
         if (error) throw error;
+        console.log('✅ Supabase save OK');
       } catch(e) {
         console.warn('Supabase save error:', e.message);
+        toast('❌ خطأ في الحفظ: ' + e.message, 'error');
       }
     }, 2000);
   };
