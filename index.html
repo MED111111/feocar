@@ -1982,7 +1982,8 @@ function saveVehicle() {
   const prix      = parseFloat(document.getElementById('veh-prix').value)||0;
   const dateAchat = document.getElementById('veh-achat').value||'';
   // Only use photo if it's a base64 data URL (not empty or page URL)
-  const prevSrc = document.getElementById('veh-photo-preview').src || '';
+  const prevEl  = document.getElementById('veh-photo-preview');
+  const prevSrc = prevEl ? (prevEl.getAttribute('src') || '') : '';
   const photo   = prevSrc.startsWith('data:') ? prevSrc : '';
 
   const editId = document.getElementById('modal-add-vehicle').dataset.editId;
@@ -3248,9 +3249,18 @@ document.addEventListener('DOMContentLoaded', async () => {
           nextContratId: DB.nextContratId, nextFactureId: DB.nextFactureId,
           nextInfractionId: DB.nextInfractionId
         };
-        const { error } = await _supa.from('feocar_data')
-          .upsert({ key: 'main', value: payload });
-        if (error) throw error;
+        // محاولة UPDATE أولاً، ثم INSERT إذا لم يجد السجل
+        const { data: existing, error: selErr } = await _supa.from('feocar_data').select('key').eq('key','main');
+        if (selErr) throw selErr;
+        let saveError;
+        if (existing && existing.length > 0) {
+          const { error: updErr } = await _supa.from('feocar_data').update({ value: payload }).eq('key','main');
+          saveError = updErr;
+        } else {
+          const { error: insErr } = await _supa.from('feocar_data').insert({ key: 'main', value: payload });
+          saveError = insErr;
+        }
+        if (saveError) throw saveError;
         console.log('✅ Supabase save OK');
       } catch(e) {
         console.warn('Supabase save error:', e.message);
