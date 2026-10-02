@@ -3291,8 +3291,14 @@ document.addEventListener('DOMContentLoaded', async () => {
     }, 2000);
   };
 
-  // تحميل البيانات أولاً ثم GPS
+  // تحميل البيانات أولاً
   await dbLoad();
+
+  // مزامنة تلقائية كل ساعة
+  setInterval(async () => {
+    await dbLoad();
+    console.log('🔄 Auto-sync done:', new Date().toLocaleTimeString());
+  }, 60 * 60 * 1000); // 60 دقيقة
   // ===== END SUPABASE SYNC =====
 
   renderClients();
