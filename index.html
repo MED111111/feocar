@@ -3200,65 +3200,76 @@ document.addEventListener('DOMContentLoaded', async () => {
   let _dbSaveTimer = null;
 
   // دالة مشتركة لتطبيق البيانات المحملة على DB
-  function applyRemoteData(remote) {
-    let hasData = false;
-    if (remote.clients && remote.clients.length > 0)      { DB.clients = remote.clients; hasData = true; }
-    if (remote.vehicules && remote.vehicules.length > 0)  { DB.vehicules = remote.vehicules; hasData = true; }
-    if (remote.contrats && remote.contrats.length > 0)    { DB.contrats = remote.contrats; hasData = true; }
-    if (remote.factures && remote.factures.length > 0)    { DB.factures = remote.factures; hasData = true; }
-    if (remote.reservations && remote.reservations.length > 0) { DB.reservations = remote.reservations; hasData = true; }
-    if (remote.infractions && remote.infractions.length > 0)   { DB.infractions = remote.infractions; hasData = true; }
-    if (remote.nextClientId)     DB.nextClientId     = remote.nextClientId;
-    if (remote.nextResId)        DB.nextResId        = remote.nextResId;
-    if (remote.nextVehId)        DB.nextVehId        = remote.nextVehId;
-    if (remote.nextContratId)    DB.nextContratId    = remote.nextContratId;
-    if (remote.nextFactureId)    DB.nextFactureId    = remote.nextFactureId;
-    if (remote.nextInfractionId) DB.nextInfractionId = remote.nextInfractionId;
-    return hasData;
+  function applyData(data) {
+    if (data.clients)      DB.clients      = data.clients;
+    if (data.vehicules)    DB.vehicules    = data.vehicules;
+    if (data.contrats)     DB.contrats     = data.contrats;
+    if (data.factures)     DB.factures     = data.factures;
+    if (data.reservations) DB.reservations = data.reservations;
+    if (data.infractions)  DB.infractions  = data.infractions;
+    if (data.nextClientId)     DB.nextClientId     = data.nextClientId;
+    if (data.nextResId)        DB.nextResId        = data.nextResId;
+    if (data.nextVehId)        DB.nextVehId        = data.nextVehId;
+    if (data.nextContratId)    DB.nextContratId    = data.nextContratId;
+    if (data.nextFactureId)    DB.nextFactureId    = data.nextFactureId;
+    if (data.nextInfractionId) DB.nextInfractionId = data.nextInfractionId;
   }
 
-  // تحميل البيانات عند فتح الصفحة (Supabase أولاً، ثم localStorage كاحتياطي)
+  // تحميل البيانات — يقارن التواريخ ويستخدم الأحدث دائماً
   async function dbLoad() {
-    let loadedFromCloud = false;
+    let cloudData = null, localData = null;
+
+    // جلب من Supabase
     try {
       const { data, error } = await _supa.from('feocar_data').select('value').eq('key','main').single();
-      if (error) throw error;
-      if (data && data.value) {
-        const hasData = applyRemoteData(data.value);
-        loadedFromCloud = true;
-        // إذا السحابة فارغة → احفظ البيانات المحلية فيها
-        if (!hasData) setTimeout(() => window.dbSave && dbSave(), 1000);
-      }
-    } catch(e) {
-      console.warn('Supabase load error:', e.message);
-      // fallback: قراءة من localStorage
-      try {
-        const local = localStorage.getItem('feocar_data');
-        if (local) {
-          applyRemoteData(JSON.parse(local));
-          console.log('✅ Loaded from localStorage');
-        }
-      } catch(le) { console.warn('localStorage load error:', le.message); }
+      if (!error && data && data.value) cloudData = data.value;
+    } catch(e) { console.warn('Supabase load error:', e.message); }
+
+    // جلب من localStorage
+    try {
+      const raw = localStorage.getItem('feocar_data');
+      if (raw) localData = JSON.parse(raw);
+    } catch(e) {}
+
+    // اختر الأحدث بناءً على savedAt
+    const cloudTime = cloudData && cloudData.savedAt ? cloudData.savedAt : 0;
+    const localTime = localData && localData.savedAt ? localData.savedAt : 0;
+
+    if (!cloudData && !localData) {
+      // لا توجد بيانات — ابدأ فارغاً
+    } else if (!localData || cloudTime >= localTime) {
+      // Supabase أحدث أو localStorage فارغ
+      applyData(cloudData);
+      console.log('✅ Loaded from Supabase (savedAt:', new Date(cloudTime).toLocaleString(), ')');
+      // حدّث localStorage ليتزامن
+      try { localStorage.setItem('feocar_data', JSON.stringify(cloudData)); } catch(e) {}
+    } else {
+      // localStorage أحدث → استخدمه وادفعه إلى Supabase
+      applyData(localData);
+      console.log('✅ Loaded from localStorage (newer, savedAt:', new Date(localTime).toLocaleString(), ')');
+      // ادفع البيانات الأحدث إلى Supabase فوراً
+      setTimeout(() => window.dbSave && dbSave(), 1000);
     }
-    // اعرض البيانات دائماً
+
     renderClients(); renderReservations(); renderContrats();
     renderFactures(); renderInfractions(); renderVehicules();
     refreshVehiculeOptions(); renderInspectionAlerts();
   }
 
-  // حفظ البيانات (localStorage فوري + Supabase احتياطي)
+  // حفظ البيانات (localStorage فوري + Supabase في الخلفية)
   window.dbSave = function() {
     const payload = {
       clients: DB.clients, vehicules: DB.vehicules, contrats: DB.contrats,
       factures: DB.factures, reservations: DB.reservations, infractions: DB.infractions,
       nextClientId: DB.nextClientId, nextResId: DB.nextResId, nextVehId: DB.nextVehId,
       nextContratId: DB.nextContratId, nextFactureId: DB.nextFactureId,
-      nextInfractionId: DB.nextInfractionId
+      nextInfractionId: DB.nextInfractionId,
+      savedAt: Date.now()  // ← طابع زمني للمقارنة بين الأجهزة
     };
-    // 1) حفظ فوري في localStorage (يعمل دائماً بدون إنترنت)
+    // 1) حفظ فوري في localStorage
     try { localStorage.setItem('feocar_data', JSON.stringify(payload)); } catch(e) {}
 
-    // 2) حفظ في Supabase مع تأخير 2 ثانية (للمزامنة بين الأجهزة)
+    // 2) حفظ في Supabase مع تأخير 2 ثانية
     clearTimeout(_dbSaveTimer);
     _dbSaveTimer = setTimeout(async () => {
       try {
