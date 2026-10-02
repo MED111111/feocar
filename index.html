@@ -3199,14 +3199,14 @@ document.addEventListener('DOMContentLoaded', async () => {
   const _supa = supabase.createClient(SUPA_URL, SUPA_KEY);
   let _dbSaveTimer = null;
 
-  // دالة مشتركة لتطبيق البيانات المحملة على DB
+  // دالة تطبيق البيانات — لا تكتب فوق إذا كانت المصفوفة فارغة
   function applyData(data) {
-    if (data.clients)      DB.clients      = data.clients;
-    if (data.vehicules)    DB.vehicules    = data.vehicules;
-    if (data.contrats)     DB.contrats     = data.contrats;
-    if (data.factures)     DB.factures     = data.factures;
-    if (data.reservations) DB.reservations = data.reservations;
-    if (data.infractions)  DB.infractions  = data.infractions;
+    if (data.clients      && data.clients.length > 0)      DB.clients      = data.clients;
+    if (data.vehicules    && data.vehicules.length > 0)    DB.vehicules    = data.vehicules;
+    if (data.contrats     && data.contrats.length > 0)     DB.contrats     = data.contrats;
+    if (data.factures     && data.factures.length > 0)     DB.factures     = data.factures;
+    if (data.reservations && data.reservations.length > 0) DB.reservations = data.reservations;
+    if (data.infractions  && data.infractions.length > 0)  DB.infractions  = data.infractions;
     if (data.nextClientId)     DB.nextClientId     = data.nextClientId;
     if (data.nextResId)        DB.nextResId        = data.nextResId;
     if (data.nextVehId)        DB.nextVehId        = data.nextVehId;
@@ -3215,7 +3215,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     if (data.nextInfractionId) DB.nextInfractionId = data.nextInfractionId;
   }
 
-  // تحميل البيانات — يقارن التواريخ ويستخدم الأحدث دائماً
+  // تحميل البيانات — يقارن التواريخ ويستخدم الأحدث
   async function dbLoad() {
     let cloudData = null, localData = null;
 
@@ -3231,24 +3231,31 @@ document.addEventListener('DOMContentLoaded', async () => {
       if (raw) localData = JSON.parse(raw);
     } catch(e) {}
 
-    // اختر الأحدث بناءً على savedAt
-    const cloudTime = cloudData && cloudData.savedAt ? cloudData.savedAt : 0;
-    const localTime = localData && localData.savedAt ? localData.savedAt : 0;
+    const cloudTime = (cloudData && cloudData.savedAt) ? cloudData.savedAt : 0;
+    const localTime = (localData && localData.savedAt) ? localData.savedAt : 0;
 
     if (!cloudData && !localData) {
-      // لا توجد بيانات — ابدأ فارغاً
-    } else if (!localData || cloudTime >= localTime) {
-      // Supabase أحدث أو localStorage فارغ
+      // لا بيانات
+    } else if (!localData) {
+      // فقط Supabase
       applyData(cloudData);
-      console.log('✅ Loaded from Supabase (savedAt:', new Date(cloudTime).toLocaleString(), ')');
-      // حدّث localStorage ليتزامن
       try { localStorage.setItem('feocar_data', JSON.stringify(cloudData)); } catch(e) {}
-    } else {
+      console.log('✅ Loaded from Supabase');
+    } else if (!cloudData) {
+      // فقط localStorage
+      applyData(localData);
+      setTimeout(() => window.dbSave && dbSave(), 1000);
+      console.log('✅ Loaded from localStorage (no cloud)');
+    } else if (localTime > cloudTime) {
       // localStorage أحدث → استخدمه وادفعه إلى Supabase
       applyData(localData);
-      console.log('✅ Loaded from localStorage (newer, savedAt:', new Date(localTime).toLocaleString(), ')');
-      // ادفع البيانات الأحدث إلى Supabase فوراً
       setTimeout(() => window.dbSave && dbSave(), 1000);
+      console.log('✅ Loaded from localStorage (newer:', new Date(localTime).toLocaleString(), ')');
+    } else {
+      // Supabase أحدث أو متساويان → استخدم Supabase
+      applyData(cloudData);
+      try { localStorage.setItem('feocar_data', JSON.stringify(cloudData)); } catch(e) {}
+      console.log('✅ Loaded from Supabase (newer:', new Date(cloudTime).toLocaleString(), ')');
     }
 
     renderClients(); renderReservations(); renderContrats();
