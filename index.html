@@ -2050,6 +2050,7 @@ function renderContrats() {
       <td><span class="badge ${statutBadge(c.statut)}">${c.statut}</span></td>
       <td class="td-actions">
         <button class="btn btn-primary btn-xs">👁</button>
+        <button class="btn btn-outline btn-xs" onclick="editContrat(${c.id})">✏️</button>
         <button class="btn btn-outline btn-xs" onclick="printContrat(${c.id})">🖨️</button>
         ${c.statut==='En cours'?`<button class="btn btn-success btn-xs" onclick="cloturerContrat(${c.id})">✓ Clôturer</button>`:''}
       </td>
@@ -2656,6 +2657,49 @@ function ctrCalcTotal() {
   }
 }
 
+/* ========== EDIT CONTRAT ========== */
+function editContrat(id) {
+  const c = DB.contrats.find(x => x.id === id);
+  if (!c) return;
+  refreshVehiculeOptions();
+  // Fill client
+  const clientSel = document.getElementById('ctr-client');
+  // Find client id by name
+  const clientObj = DB.clients.find(x => (x.prenom + ' ' + x.nom) === c.client);
+  if (clientObj) clientSel.value = clientObj.id;
+  // Fill vehicle
+  const vehSel = document.getElementById('ctr-veh');
+  // Find matching option
+  const matchOpt = Array.from(vehSel.options).find(o => o.value.startsWith(c.vehicule));
+  if (matchOpt) vehSel.value = matchOpt.value;
+  // Fill dates — convert DD/MM/YYYY HH:MM → YYYY-MM-DDTHH:MM
+  const toInput = s => {
+    if (!s) return '';
+    const [datePart, timePart=''] = s.split(' ');
+    const [dd, mm, yyyy] = datePart.split('/');
+    return yyyy ? yyyy + '-' + mm + '-' + dd + (timePart ? 'T' + timePart : '') : '';
+  };
+  document.getElementById('ctr-fin').value   = toInput(c.fin);
+  document.getElementById('ctr-debut').value = toInput(c.debut);
+  // Fill other fields
+  document.getElementById('ctr-lieu').value    = c.lieu || '';
+  document.getElementById('ctr-lieu-ret').value = c.lieuRet || '';
+  // Extract prix/jour number
+  const prixNum = c.prixJour ? parseFloat(c.prixJour.replace(/[^\d.]/g,'')) : '';
+  document.getElementById('ctr-prix').value   = prixNum || '';
+  const cautionNum = c.caution ? parseFloat(c.caution.replace(/[^\d.]/g,'')) : '';
+  document.getElementById('ctr-caution').value = cautionNum || '';
+  document.getElementById('ctr-km-dep').value = c.kmDep || '';
+  document.getElementById('ctr-km-ret').value = c.kmRet || '';
+  const condEl = document.getElementById('ctr-cond');
+  if (condEl) condEl.value = c.conditions || '';
+  ctrCalcTotal();
+  // Store edit id
+  document.getElementById('modal-add-contrat').dataset.editId = id;
+  document.querySelector('#modal-add-contrat .modal-title').textContent = '✏️ Modifier Contrat CTR-' + id;
+  openModal('modal-add-contrat');
+}
+
 /* ========== SAVE CONTRAT ========== */
 function saveContrat() {
   const clientId = document.getElementById('ctr-client').value;
@@ -2689,26 +2733,53 @@ function saveContrat() {
   // Update vehicle km in DB if provided
   const vehObj = DB.vehicules.find(v => (v.marque+' '+v.modele) === vehLabel || vehLabel.includes(v.plaque));
   if (vehObj && kmDep) vehObj.km = parseInt(kmDep);
-  DB.contrats.unshift({
-    id: DB.nextContratId++,
-    client: clientName,
-    vehicule: vehLabel,
-    debut: fmt(debut),
-    fin: fmt(fin),
-    lieu: document.getElementById('ctr-lieu').value || '',
-    lieuRet: document.getElementById('ctr-lieu-ret').value || '',
-    prix: montantFmt,
-    prixJour: prixJourFmt,
-    jours: joursCalc,
-    caution: caution ? parseFloat(caution).toLocaleString('fr-MA') + ' MAD' : '',
-    kmDep: kmDep ? parseInt(kmDep) : null,
-    kmRet: kmRet ? parseInt(kmRet) : null,
-    statut: 'En cours'
-  });
-  if(window.dbSave) dbSave();
-  closeModal('modal-add-contrat');
-  renderContrats();
-  toast('✅ Contrat CTR-' + (DB.nextContratId-1) + ' créé avec succès !');
+  const editId = document.getElementById('modal-add-contrat').dataset.editId;
+  if (editId) {
+    // EDIT MODE
+    const c = DB.contrats.find(x => x.id === parseInt(editId));
+    if (c) {
+      c.client   = clientName;
+      c.vehicule = vehLabel;
+      c.debut    = fmt(debut);
+      c.fin      = fmt(fin);
+      c.lieu     = document.getElementById('ctr-lieu').value || '';
+      c.lieuRet  = document.getElementById('ctr-lieu-ret').value || '';
+      c.prix     = montantFmt;
+      c.prixJour = prixJourFmt;
+      c.jours    = joursCalc;
+      c.caution  = caution ? parseFloat(caution).toLocaleString('fr-MA') + ' MAD' : '';
+      c.kmDep    = kmDep ? parseInt(kmDep) : null;
+      c.kmRet    = kmRet ? parseInt(kmRet) : null;
+    }
+    delete document.getElementById('modal-add-contrat').dataset.editId;
+    document.querySelector('#modal-add-contrat .modal-title').textContent = '📝 Nouveau Contrat';
+    if(window.dbSave) dbSave();
+    closeModal('modal-add-contrat');
+    renderContrats();
+    toast('✅ Contrat CTR-' + editId + ' modifié avec succès !');
+  } else {
+    // ADD MODE
+    DB.contrats.unshift({
+      id: DB.nextContratId++,
+      client: clientName,
+      vehicule: vehLabel,
+      debut: fmt(debut),
+      fin: fmt(fin),
+      lieu: document.getElementById('ctr-lieu').value || '',
+      lieuRet: document.getElementById('ctr-lieu-ret').value || '',
+      prix: montantFmt,
+      prixJour: prixJourFmt,
+      jours: joursCalc,
+      caution: caution ? parseFloat(caution).toLocaleString('fr-MA') + ' MAD' : '',
+      kmDep: kmDep ? parseInt(kmDep) : null,
+      kmRet: kmRet ? parseInt(kmRet) : null,
+      statut: 'En cours'
+    });
+    if(window.dbSave) dbSave();
+    closeModal('modal-add-contrat');
+    renderContrats();
+    toast('✅ Contrat CTR-' + (DB.nextContratId-1) + ' créé avec succès !');
+  }
   // reset
   ['ctr-debut','ctr-fin','ctr-lieu','ctr-lieu-ret','ctr-prix','ctr-caution','ctr-cond','ctr-km-dep','ctr-km-ret'].forEach(id=>{
     const el=document.getElementById(id); if(el) el.value='';
