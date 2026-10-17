@@ -2016,7 +2016,7 @@ function refreshVehiculeOptions() {
   document.querySelectorAll('select[data-vehicules]').forEach(sel => {
     const cur = sel.value;
     sel.innerHTML = '<option value="">-- Sélectionner véhicule --</option>' +
-      DB.vehicules.map(v=>`<option value="${v.plaque}">${v.marque} ${v.modele} ${v.annee} — ${v.plaque}${v.statut!=='Disponible'?' ('+v.statut+')':''}</option>`).join('');
+      DB.vehicules.map(v=>`<option value="${v.marque} ${v.modele} — ${v.plaque}">${v.marque} ${v.modele} ${v.annee} — ${v.plaque}${v.statut!=='Disponible'?' ('+v.statut+')':''}</option>`).join('');
     sel.value = cur;
   });
 }
